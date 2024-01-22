@@ -1,73 +1,95 @@
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
-from sqlalchemy.orm import Session
-from typing import Optional
-from database import obtener_bd
-from gorra import Gorra
-from database import Gorra
-from pydantic import BaseModel
-import base64
+from flask import Flask, request, jsonify, Response
+from flask_pymongo import PyMongo
+from bson import json_util
+from bson.objectid import ObjectId
 
-app = FastAPI()
+app = Flask(__name__)
 
-# Modelo para validar los datos de entrada de la API
-class GorraModelo(BaseModel):
-    descripcion: str
-    stock: int
-    fecha_lanzamiento: str
-    nombre_imagen: str
+# Configuramos la URI de MongoDB
+app.config["MONGO_URI"] = 'mongodb+srv://fernandoyaiza:pr4cticafl4sk@cluster0.nwmz277.mongodb.net/fernandoyaizabd'
 
-# Convertir una instancia de Gorra en un diccionario
-def gorra_a_diccionario(gorra):
-    if gorra.imagen is not None:
-        gorra.imagen = base64.b64encode(gorra.imagen).decode('ascii')
-    return {c.name: getattr(gorra, c.name) for c in gorra.__table__.columns}
+mongo = PyMongo(app)
 
-@app.get("/")
-def leer_raiz():
-    return {"mensaje": "¡Hola, Bienvenido!"}
+# Definimos la ruta para obtener todas las gorras
+@app.route('/gorras', methods=['GET'])
+def get_gorras():
+    gorras = mongo.db.gorras.find()
+    response = json_util.dumps(gorras)
+    return Response(response, mimetype='application/json')
 
-# Ruta para obtener todas las gorras
-@app.get("/gorras")
-def leer_gorras(db: Session = Depends(obtener_bd)):
-    gorras = db.query(Gorra).all()
-    return {"gorras": [gorra_a_diccionario(gorra) for gorra in gorras]}
+# Definimos la ruta para obtener una gorra por su ID
+@app.route('/gorras/<id>', methods=['GET'])
+def get_gorra(id):
+    gorra = mongo.db.gorras.find_one({'_id': ObjectId(id)})
+    response = json_util.dumps(gorra)
+    return Response(response, mimetype='application/json')
 
-# Ruta para crear una nueva gorra
-@app.post("/gorra")
-def crear_gorra(gorra: GorraModelo, db: Session = Depends(obtener_bd)):
-    nueva_gorra = Gorra(**gorra.dict())
-    db.add(nueva_gorra)
-    db.commit()
-    return {"gorra": gorra_a_diccionario(nueva_gorra)}
+# Definimos la ruta para crear una nueva gorra
+@app.route('/gorras', methods=['POST'])
+def create_gorra():
+    request_data = request.get_json()
+    descripcion = request_data.get('descripcion')
+    stock = request_data.get('stock')
+    fecha_lanzamiento = request_data.get('fecha_lanzamiento')
+    nombre_imagen = request_data.get('nombre_imagen')
+    imagen = request_data.get('imagen')
+    # Insertamos la nueva gorra en la base de datos
+    id = mongo.db.gorras.insert_one({'descripcion': descripcion, 'stock': stock, 'fecha_lanzamiento': fecha_lanzamiento, 'nombre_imagen': nombre_imagen, 'imagen': imagen})
+    response = {
+        'id': str(id.inserted_id),
+        'descripcion': descripcion,
+        'stock': stock,
+        'fecha_lanzamiento': fecha_lanzamiento,
+        'nombre_imagen': nombre_imagen,
+        'imagen': imagen
+    }
+    return response
 
-# Ruta para obtener una gorra por su id
-@app.get("/gorra/{id}")
-def leer_gorra(id: int, db: Session = Depends(obtener_bd)):
-    gorra = db.query(Gorra).filter(Gorra.id == id).first()
-    if gorra is None:
-        raise HTTPException(status_code=404, detail="Gorra no encontrada")
-    return {"gorra": gorra_a_diccionario(gorra)}
+# Definimos la ruta para eliminar una gorra por su ID
+@app.route('/gorras/<id>', methods=['DELETE'])
+def delete_gorra(id):
+    gorra = mongo.db.gorras.find_one({'_id': ObjectId(id)})
+    if gorra:
+        mongo.db.gorras.delete_one({'_id': ObjectId(id)})
+        response = jsonify({'mensaje': 'Gorra ' + id + ' fue eliminada satisfactoriamente'})
+        return response
+    else:
+        return not_found()
 
-# Ruta para eliminar una gorra por su id
-@app.delete("/gorra/{id}")
-def eliminar_gorra(id: int, db: Session = Depends(obtener_bd)):
-    gorra = db.query(Gorra).filter(Gorra.id == id).first()
-    if gorra is None:
-        raise HTTPException(status_code=404, detail="Gorra no encontrada")
-    db.delete(gorra)
-    db.commit()
-    return {"mensaje": "Gorra eliminada"}
+# Definimos la ruta para actualizar una gorra por su ID
+@app.route('/gorras/<id>', methods=['PUT'])
+def update_gorra(id):
+    request_data = request.get_json()
+    descripcion = request_data.get('descripcion')
+    stock = request_data.get('stock')
+    fecha_lanzamiento = request_data.get('fecha_lanzamiento')
+    nombre_imagen = request_data.get('nombre_imagen')
+    imagen = request_data.get('imagen')
+    gorra = mongo.db.gorras.find_one({'_id': ObjectId(id)})
+    if gorra:
+        # Actualizamos la gorra en la base de datos
+        mongo.db.gorras.update_one({'_id': ObjectId(id)}, {'$set':
+        {
+            'descripcion': descripcion,
+            'stock': stock,
+            'fecha_lanzamiento': fecha_lanzamiento,
+            'nombre_imagen': nombre_imagen,
+            'imagen': imagen
+        }})
+        response = jsonify({'mensaje': 'Gorra ' + id + ' fue actualizada satisfactoriamente'})
+        return response
+    else:
+        return not_found()
 
-# Ruta para actualizar una gorra por su id
-@app.put("/gorra/{id}")
-def actualizar_gorra(id: int, gorra: GorraModelo, imagen: UploadFile = File(None), db: Session = Depends(obtener_bd)):
-    gorra_existente = db.query(Gorra).filter(Gorra.id == id).first()
-    if gorra_existente is None:
-        raise HTTPException(status_code=404, detail="Gorra no encontrada")
-    for clave, valor in gorra.dict().items():
-        if valor is not None:
-            setattr(gorra_existente, clave, valor)
-    if imagen:
-        gorra_existente.imagen = imagen.file.read()
-    db.commit()
-    return {"gorra": gorra_a_diccionario(gorra_existente)}
+# Definimos el manejador de errores para el error 404
+@app.errorhandler(404)
+def not_found(error=None):
+    response = jsonify({
+        'mensaje': 'Recurso no encontrado: ' + request.url,
+        'status': 404
+    })
+    response.status_code = 404
+    return response
+
+if __name__ == "__main__":
+    app.run(debug=True)
