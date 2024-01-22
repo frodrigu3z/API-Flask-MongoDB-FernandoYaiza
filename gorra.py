@@ -1,31 +1,16 @@
-from database import db
-from sqlalchemy.sql import func
+from sqlalchemy import Column, Integer, String, Date, LargeBinary
+from sqlalchemy.orm import declarative_base
 
-# Para crear las tablas, desde el entorno de ejecución de Python, ejecutar:
-# from database import app, db
-# from gorra import Gorra
-# app.app_context().push()
-# db.create_all()
+# Creamos la base para el modelo
+Base = declarative_base()
 
-class Gorra(db.Model):
-    
-    __tablename__ = 'gorras'
-         
-    id = db.Column(db.Integer, primary_key=True)
-    descripcion = db.Column(db.String(100))
-    stock = db.Column(db.Integer)
-    fecha_lanzamiento = db.Column(db.Date)
-    nombre_imagen = db.Column(db.String(100))
-    imagen = db.Column(db.LargeBinary)
-     
-    def __init__(self, descripcion, stock, fecha_lanzamiento, nombre_imagen, imagen):
-        self.descripcion = descripcion
-        self.stock = stock
-        self.fecha_lanzamiento = fecha_lanzamiento
-        self.nombre_imagen = nombre_imagen
-        self.imagen = imagen
+# Definimos el modelo Gorra
+class Gorra(Base):
+    __tablename__ = "gorras"
 
-    def __repr__(self):
-        return f'<Gorra {self.id}>: {self.descripcion}'
-    
-    
+    id = Column(Integer, primary_key=True, index=True)
+    descripcion = Column(String)
+    stock = Column(Integer)
+    fecha_lanzamiento = Column(Date)
+    nombre_imagen = Column(String)
+    imagen = Column(LargeBinary)

@@ -1,38 +1,32 @@
-from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
-from flask_marshmallow import Marshmallow
-from dotenv import load_dotenv, find_dotenv
-from marshmallow import fields, Schema
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from dotenv import load_dotenv
 import os
-import base64
+from fastapi import Depends
+from sqlalchemy.orm import Session
+from gorra import Gorra, Base
 
-# Lee la información existente en un archivo denominado .env
-# Este es un archivo oculto en un servidor de producciómn y alberga
-# las etiquetas y sus valores para la cadena de conexión a MongoDB
-
-load_dotenv(find_dotenv())
+load_dotenv()
 usuario = os.environ.get("MYSQLDB_USUARIO")
 password = os.environ.get("MYSQLDB_PASSWORD")
 host = os.environ.get("MYSQLDB_HOST")
 bd = os.environ.get("MYSQLDB_BD")
 
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = f'mysql+pymysql://{usuario}:{password}@{host}/{bd}'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SECRET_KEY'] = 'hardsecretkey'  # Para las sesiones flash
+DATABASE_URL = f'mysql+pymysql://{usuario}:{password}@{host}/{bd}'
 
-db = SQLAlchemy(app)
-ma = Marshmallow(app)
+# Creamos el motor de la base de datos
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-class GorraSchema(Schema):
-    id = fields.Int()
-    descripcion = fields.Str()
-    stock = fields.Int()
-    fecha_lanzamiento = fields.Date()
-    nombre_imagen = fields.Str()
-    imagen = fields.Method('get_imagen_base64')
+# Obtener una sesión de la base de datos
+def obtener_bd():
+    bd = SessionLocal()
+    try:
+        yield bd
+    finally:
+        bd.close()
 
-    def get_imagen_base64(self, obj):
-        if obj.imagen is not None:
-            return base64.b64encode(obj.imagen).decode('utf-8')
-        return None
+# Leer todas las gorras de la base de datos
+def leer_gorras(bd: Session = Depends(obtener_bd)):
+    gorras = bd.query(Gorra).all()
+    return gorras

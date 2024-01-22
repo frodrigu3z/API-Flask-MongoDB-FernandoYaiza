@@ -1,113 +1,73 @@
-from flask import Flask, render_template, flash, request, Response, jsonify, redirect, url_for
-from database import app, db, GorraSchema
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from sqlalchemy.orm import Session
+from typing import Optional
+from database import obtener_bd
 from gorra import Gorra
-from werkzeug.utils import secure_filename
-from flask_wtf import FlaskForm
-from wtforms import StringField, IntegerField, DateField, FileField, SubmitField
-from wtforms.validators import DataRequired, NumberRange, Email
-from flask_wtf.file import FileField, FileAllowed
-import os
-from base64 import b64encode
+from database import Gorra
+from pydantic import BaseModel
+import base64
 
-gorra_schema = GorraSchema()
-gorras_schema = GorraSchema(many=True)
+app = FastAPI()
 
-@app.route('/')
-def home():
-    gorras = Gorra.query.all()
-    gorrasLeidas = gorras_schema.dump(gorras)
-    return render_template('index.html', gorras = gorrasLeidas)
+# Modelo para validar los datos de entrada de la API
+class GorraModelo(BaseModel):
+    descripcion: str
+    stock: int
+    fecha_lanzamiento: str
+    nombre_imagen: str
 
+# Convertir una instancia de Gorra en un diccionario
+def gorra_a_diccionario(gorra):
+    if gorra.imagen is not None:
+        gorra.imagen = base64.b64encode(gorra.imagen).decode('ascii')
+    return {c.name: getattr(gorra, c.name) for c in gorra.__table__.columns}
 
-@app.route('/create', methods=['GET', 'POST'])
-def createGorra():
-    form = GorraForm()
-    if form.validate_on_submit():
-        descripcion = form.descripcion.data
-        stock = form.stock.data
-        fecha_lanzamiento = form.fecha_lanzamiento.data
-        nombre_imagen = form.nombre_imagen.data
-        imagen = form.imagen.data
+@app.get("/")
+def leer_raiz():
+    return {"mensaje": "¡Hola, Bienvenido!"}
 
-        imagen_path = os.path.join('static/img', secure_filename(imagen.filename))
-        imagen.save(imagen_path)
+# Ruta para obtener todas las gorras
+@app.get("/gorras")
+def leer_gorras(db: Session = Depends(obtener_bd)):
+    gorras = db.query(Gorra).all()
+    return {"gorras": [gorra_a_diccionario(gorra) for gorra in gorras]}
 
-        with open(imagen_path, 'rb') as f:
-            imagen_bin = f.read()
+# Ruta para crear una nueva gorra
+@app.post("/gorra")
+def crear_gorra(gorra: GorraModelo, db: Session = Depends(obtener_bd)):
+    nueva_gorra = Gorra(**gorra.dict())
+    db.add(nueva_gorra)
+    db.commit()
+    return {"gorra": gorra_a_diccionario(nueva_gorra)}
 
-        nueva_gorra = Gorra(descripcion, stock, fecha_lanzamiento, nombre_imagen, imagen_bin)
-        db.session.add(nueva_gorra)
-        db.session.commit()
-        return redirect(url_for('home'))
-    return render_template('create_gorra.html', form=form)
-
-@app.route('/delete', methods=['GET', 'POST'])
-def deleteGorra():
-    if request.method == 'POST':
-        id = request.form['id']
-        gorra = Gorra.query.get(id)
-        if gorra:
-            db.session.delete(gorra)
-            db.session.commit()
-            return redirect(url_for('home'))
-        else:
-            return render_template('delete_gorra.html', error='El ID introducido no existe')
-    else:
-        return render_template('delete_gorra.html')
-
-@app.route('/edit/<id>', methods=['GET', 'POST'])
-def editGorra(id):    
-    gorra = Gorra.query.get(id)
+# Ruta para obtener una gorra por su id
+@app.get("/gorra/{id}")
+def leer_gorra(id: int, db: Session = Depends(obtener_bd)):
+    gorra = db.query(Gorra).filter(Gorra.id == id).first()
     if gorra is None:
-        return notFound()
+        raise HTTPException(status_code=404, detail="Gorra no encontrada")
+    return {"gorra": gorra_a_diccionario(gorra)}
 
-    form = EditGorraForm(obj=gorra)
-    imagen_base64 = b64encode(gorra.imagen).decode('utf-8') if gorra.imagen else None
-    
-    if form.validate_on_submit():
-        gorra.descripcion = form.descripcion.data
-        gorra.stock = form.stock.data
-        gorra.fecha_lanzamiento = form.fecha_lanzamiento.data
-        gorra.nombre_imagen = form.nombre_imagen.data
+# Ruta para eliminar una gorra por su id
+@app.delete("/gorra/{id}")
+def eliminar_gorra(id: int, db: Session = Depends(obtener_bd)):
+    gorra = db.query(Gorra).filter(Gorra.id == id).first()
+    if gorra is None:
+        raise HTTPException(status_code=404, detail="Gorra no encontrada")
+    db.delete(gorra)
+    db.commit()
+    return {"mensaje": "Gorra eliminada"}
 
-        # Guardar la imagen en la base de datos como datos binarios
-        imagen = request.files['imagen']
-        if imagen.filename != '':
-            imagen_filename = secure_filename(gorra.nombre_imagen) + '.' + imagen.filename.rsplit('.', 1)[1].lower()
-            imagen_path = os.path.join('static/img', imagen_filename)
-            imagen.save(imagen_path)
-            with open(imagen_path, 'rb') as f:
-                gorra.imagen = f.read()
-
-        db.session.commit()
-        return redirect(url_for('home'))
-
-    return render_template('edit_gorra.html', form=form, imagen_base64=imagen_base64)
-
-class EditGorraForm(FlaskForm):
-    descripcion = StringField('Descripcion', validators=[DataRequired()])
-    stock = IntegerField('Stock', validators=[DataRequired(), NumberRange(min=0)])
-    fecha_lanzamiento = DateField('Fecha de Lanzamiento', validators=[DataRequired()])
-    nombre_imagen = StringField('Nombre de la Imagen', validators=[DataRequired()])
-    imagen = FileField('Imagen', validators=[DataRequired()])
-
-class GorraForm(FlaskForm):
-    descripcion = StringField('Descripcion', validators=[DataRequired()])
-    stock = IntegerField('Stock', validators=[DataRequired()])
-    fecha_lanzamiento = DateField('Fecha de Lanzamiento', format='%Y-%m-%d', validators=[DataRequired()])
-    nombre_imagen = StringField('Nombre de la Imagen', validators=[DataRequired()])
-    imagen = FileField('Imagen', validators=[FileAllowed(['jpg', 'png'])])
-    submit = SubmitField('Crear Gorra')
-
-@app.errorhandler(404)
-def notFound(error=None):
-    message ={
-        'message': 'No encontrado ' + request.url,
-        'status': '404 Not Found'
-    }
-    response = jsonify(message)
-    response.status_code = 404
-    return response
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+# Ruta para actualizar una gorra por su id
+@app.put("/gorra/{id}")
+def actualizar_gorra(id: int, gorra: GorraModelo, imagen: UploadFile = File(None), db: Session = Depends(obtener_bd)):
+    gorra_existente = db.query(Gorra).filter(Gorra.id == id).first()
+    if gorra_existente is None:
+        raise HTTPException(status_code=404, detail="Gorra no encontrada")
+    for clave, valor in gorra.dict().items():
+        if valor is not None:
+            setattr(gorra_existente, clave, valor)
+    if imagen:
+        gorra_existente.imagen = imagen.file.read()
+    db.commit()
+    return {"gorra": gorra_a_diccionario(gorra_existente)}
