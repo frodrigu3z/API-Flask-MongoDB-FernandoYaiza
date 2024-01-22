@@ -70,4 +70,4 @@ def actualizar_gorra(id: int, gorra: GorraModelo, imagen: UploadFile = File(None
     if imagen:
         gorra_existente.imagen = imagen.file.read()
     db.commit()
-    return {"gorra": gorra_a_diccionario(gorra_existente)}83414e9e43fc48cd318289eef3
+    return {"gorra": gorra_a_diccionario(gorra_existente)}
