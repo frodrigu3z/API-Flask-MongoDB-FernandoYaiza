@@ -10,6 +10,11 @@ app.config["MONGO_URI"] = 'mongodb+srv://fernandoyaiza:pr4cticafl4sk@cluster0.nw
 
 mongo = PyMongo(app)
 
+# Ruta para el inicio '/'
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({"message": "Hola, Bienvenido! -  API REST MONGODB"})
+
 # Definimos la ruta para obtener todas las gorras
 @app.route('/gorras', methods=['GET'])
 def get_gorras():
